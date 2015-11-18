@@ -1,0 +1,120 @@
+//
+//  ServerManager.m
+//  TweetSearch
+//
+//  Created by Alexandr on 13.11.15.
+//  Copyright (c) 2015 Alexandr. All rights reserved.
+//
+
+#import "ServerManager.h"
+#import "AppDelegate.h"
+#import "AFNetworking.h"
+#import "Tweet.h"
+
+@interface ServerManager ()
+
+@property (strong, nonatomic) AFHTTPRequestOperationManager *reqOperationManager;
+
+@end
+
+@implementation ServerManager
+
++ (ServerManager *)shManager {
+    
+    static ServerManager *manager;
+    
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        manager = [[ServerManager alloc] init];
+    });
+    return manager;
+}
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        self.reqOperationManager = [AFHTTPRequestOperationManager manager];
+    }
+    return self;
+}
+
+- (void)getTweetsOfHashtag:(NSString *)hashtag count:(NSInteger)count onSuccess:(void(^)(NSArray *tweets))success {
+    
+    AppDelegate *delegate = [UIApplication sharedApplication].delegate;
+    NSManagedObjectContext *context = delegate.mObjectContext;
+    
+    hashtag = [hashtag stringByReplacingOccurrencesOfString:@" " withString:@""];
+    hashtag = [hashtag stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    
+    if ([hashtag isEqualToString:@""]) {
+        [[[UIAlertView alloc] initWithTitle:@"Attention!" message:@"No words to search!" delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles:nil] show];
+        return;
+    }
+    
+    [UIApplication sharedApplication].networkActivityIndicatorVisible = YES;
+    
+    NSString *reqString = [NSString stringWithFormat:@"https://api.twitter.com/1.1/search/tweets.json?q=%%23%@&result_type=recent&count=%ld&lang=ru", hashtag, (long)count];
+    
+    [self.reqOperationManager.requestSerializer setValue:@"Bearer AAAAAAAAAAAAAAAAAAAAADiJRQAAAAAAt%2Brjl%2Bqmz0rcy%2BBbuXBBsrUHGEg%3Dq0EK2aWqQMb15gCZNwZo9yqae0hpe2FDsS92WAu0g" forHTTPHeaderField:@"Authorization"];
+    
+    [self.reqOperationManager GET:reqString parameters:nil success:^(AFHTTPRequestOperation *operation, id responseObject) {
+        
+        NSArray *array = responseObject[@"statuses"];
+        
+        if ([array count] == 0) {
+            [[[UIAlertView alloc] initWithTitle:@"Внимание!" message:@"По данному хештегу не найдено твитов" delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles:nil] show];
+        }
+        
+        else {
+            NSFetchRequest *request = [[NSFetchRequest alloc] init];
+            NSEntityDescription *description = [NSEntityDescription entityForName:@"Tweet"
+                                                           inManagedObjectContext:context];
+            [request setEntity:description];
+            NSArray *resultArray = [context executeFetchRequest:request error:nil];
+            
+            if ([resultArray count]) {
+                for (Tweet *tweet in resultArray) {
+                    [context deleteObject:tweet];
+                }
+                [context save:nil];
+            }
+
+            NSMutableArray *tweetsArray = [NSMutableArray array];
+            
+            for (NSDictionary *dict in array) {
+                
+                Tweet *tweet = [NSEntityDescription insertNewObjectForEntityForName:@"Tweet"
+                                                             inManagedObjectContext:context];
+                tweet.createdDate = dict[@"created_at"];
+                tweet.text = dict[@"text"];
+                
+                NSDictionary *user = dict[@"user"];
+                tweet.profileImageURL = user[@"profile_image_url_https"];
+                tweet.userName = user[@"name"];
+                
+                NSNumber *count = user[@"friends_count"];
+                tweet.countFriends = [count stringValue];
+                
+                NSError *error = nil;
+                [context save:&error];
+                
+                if (error) {
+                    NSLog(@"%@", [error localizedDescription]);
+                }
+                [tweetsArray addObject:tweet];
+            }
+            
+            if (success) {
+                success(tweetsArray);
+            }
+        }
+        
+        [UIApplication sharedApplication].networkActivityIndicatorVisible = NO;
+        
+    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+        NSLog(@"Error %@", [error localizedDescription]);
+    }];
+}
+
+@end

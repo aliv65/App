@@ -1,0 +1,17 @@
+//
+//  ServerManager.h
+//  TweetSearch
+//
+//  Created by Alexandr on 13.11.15.
+//  Copyright (c) 2015 Alexandr. All rights reserved.
+//
+
+#import <Foundation/Foundation.h>
+
+@interface ServerManager : NSObject
+
++ (ServerManager *)shManager;
+
+- (void)getTweetsOfHashtag:(NSString *)hashtag count:(NSInteger)count onSuccess:(void(^)(NSArray *tweets))success;
+
+@end
